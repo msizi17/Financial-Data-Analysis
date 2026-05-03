@@ -1,0 +1,84 @@
+import numpy as np
+import pandas as pd
+from scipy.stats import gaussian_kde
+
+def kl_divergence_continuous(p_samples, q_samples, grid_size=1000):
+    """
+    Approximate KL(P || Q) using KDE + numerical integration.
+    Works for continuous time series data.
+    """
+
+    p_samples = np.asarray(p_samples)
+    q_samples = np.asarray(q_samples)
+
+    # KDE estimates
+    kde_p = gaussian_kde(p_samples)
+    kde_q = gaussian_kde(q_samples)
+
+    # shared evaluation grid
+    xmin = min(p_samples.min(), q_samples.min())
+    xmax = max(p_samples.max(), q_samples.max())
+    x = np.linspace(xmin, xmax, grid_size)
+
+    p_pdf = kde_p(x)
+    q_pdf = kde_q(x)
+
+    # avoid division by zero
+    eps = 1e-12
+    p_pdf = np.clip(p_pdf, eps, None)
+    q_pdf = np.clip(q_pdf, eps, None)
+
+    # KL integral approximation
+    kl = np.sum(p_pdf * np.log(p_pdf / q_pdf)) * (xmax - xmin) / grid_size
+
+    return kl
+
+
+def rolling_kl_divergence(series, window=50, step=1):
+    """
+    Compute KL divergence over time using rolling windows.
+
+    Parameters:
+    series : array-like time series
+    window : size of reference/current window
+    step   : step size for sliding
+
+    Returns:
+    pd.DataFrame with KL values over time
+    """
+
+    series = np.asarray(series)
+
+    kl_values = []
+    time_points = []
+
+    for i in range(window, len(series) - window, step):
+        reference = series[i - window:i]
+        current = series[i:i + window]
+
+        kl = kl_divergence_continuous(reference, current)
+
+        kl_values.append(kl)
+        time_points.append(i)
+
+    return pd.DataFrame({
+        "time_index": time_points,
+        "kl_divergence": kl_values
+    })
+
+
+# -------------------------
+# Example usage
+# -------------------------
+if __name__ == "__main__":
+    np.random.seed(42)
+
+    # simulate time series with a distribution shift
+    t1 = np.random.normal(0, 1, 500)
+    t2 = np.random.normal(2, 1.5, 500)
+
+    ts = np.concatenate([t1, t2])
+
+    result = rolling_kl_divergence(ts, window=50)
+
+    print(result.head())
